@@ -42,6 +42,7 @@
             box-shadow: 0 0 20px rgba(255,255,255,0.6); 
         }
         
+        /* 프로필별 색상 규격 */
         .active-v { background-color: #deff9a !important; box-shadow: 0 0 4px #deff9a; } 
         .active-f { background-color: #3b82f6 !important; box-shadow: 0 0 4px #3b82f6; } 
         .active-x { background-color: #a855f7 !important; box-shadow: 0 0 4px #a855f7; }
@@ -80,7 +81,7 @@
         const { useState, useEffect, useMemo } = React;
 
         const App = () => {
-            const [selectedVehicle, setSelectedVehicle] = useState('Bus'); // 초기 요청에 따라 버스로 설정
+            const [selectedVehicle, setSelectedVehicle] = useState('Bus'); 
             const [selectedProfile, setSelectedProfile] = useState(null);
             const [builtIndicesMap, setBuiltIndicesMap] = useState({ Sedan: new Set(), Truck: new Set(), Bus: new Set() });
             
@@ -104,7 +105,6 @@
                 { id: 'x', name: '커넥티드 (V2X)', icon: 'fa-tower-broadcast', color: '#a855f7', target: '로보셔틀/택시', count: 400, range: [600, 999] }
             ];
 
-            // --- 1,000건의 사고 데이터 생성 (CTO 보정: 수치-제목-기여도 100% 동기화 로직) ---
             const libraryData = useMemo(() => {
                 const vFactor = vehicleTypes.find(v => v.id === selectedVehicle).weight;
 
@@ -116,61 +116,58 @@
                         let f = STANDARDS.friction;
                         let l = STANDARDS.latency;
 
-                        // 주원인 강제 인입 및 타 변수 정상화
-                        if (primaryTypeIdx === 0) { // 시스템 인지 지연 주원인 시나리오
-                            l = 0.42 + Math.random() * 0.08; // 사용자 지적 0.42s 수준 재현
-                            s = STANDARDS.speed + 0.5; // 60.5km/h 등 미세 초과(정상범위) 재현
+                        // 시나리오별 주요 결함 인입 로직
+                        if (primaryTypeIdx === 0) { // [공정 1] 시스템 지연 주도 (정상 속도 상황)
+                            l = 0.42 + Math.random() * 0.08; 
+                            s = STANDARDS.speed + 0.5; // 60.5km/h 수준 재현
                             f = STANDARDS.friction; 
-                        } else if (primaryTypeIdx === 1) { // 주행 속도 주원인 시나리오
-                            s = STANDARDS.speed + 35 + Math.random() * 10; // 확실한 과속
+                        } else if (primaryTypeIdx === 1) { // [공정 2] 속도 과실 주도 (정상 지연 상황)
+                            s = STANDARDS.speed + 35 + Math.random() * 10; 
                             f = STANDARDS.friction; 
                             l = STANDARDS.latency;
-                        } else { // 노면 마찰력 주원인 시나리오
-                            f = 0.25 + Math.random() * 0.15; // 확실한 노면 악화
+                        } else { // [공정 3] 노면 마찰 주도 (정상 속도/지연 상황)
+                            f = 0.20 + Math.random() * 0.15; 
                             s = STANDARDS.speed + 0.5; 
                             l = STANDARDS.latency;
                         }
 
+                        // 프로필별 배제 마스킹 (Vision은 통신 영향 0)
                         const M_mask = type === 'v' ? 0 : 1; 
 
-                        // 정상 범위 여부 판독 (Margins 적용)
+                        // 정상 여부 엄격 판독 (CTO 3% 고정 알고리즘)
                         const isNormS = s <= STANDARDS.speed + MARGINS.speed;
                         const isNormF = f >= STANDARDS.friction - MARGINS.friction;
                         const isNormL = l <= STANDARDS.latency + MARGINS.latency;
 
-                        // --- CTO 로직: 정상 인자는 무조건 3% 할당, 비정상은 지수 함수적 비중 부여 ---
                         let op, env, oem;
                         const baseRisk = 3; 
 
-                        // 임시 리스크 가중치 산출 (비정상 항목만 계산)
-                        const sDelta = !isNormS ? Math.pow(s - STANDARDS.speed, 2.5) * vFactor : 0;
-                        const fDelta = !isNormF ? Math.pow(STANDARDS.friction - f, 2.5) * 1200 * vFactor : 0;
-                        const lDelta = !isNormL ? Math.pow(l - STANDARDS.latency, 2.5) * 5000 * M_mask : 0;
-                        
-                        const deltaSum = sDelta + fDelta + lDelta;
-
                         if (isNormS && isNormF && isNormL) {
-                            // 모든 변수가 정상일 때 (Base Risk)
                             op = 33; env = 33; oem = M_mask === 0 ? 0 : 34;
                             if (M_mask === 0) { op = 50; env = 50; }
                         } else {
-                            // 정상 인자에 3% 선배정
+                            // 정상 인자에 무조건 3% 선배정
                             let fixedPool = 0;
                             if (isNormS) { op = baseRisk; fixedPool += baseRisk; }
                             if (isNormF) { env = baseRisk; fixedPool += baseRisk; }
-                            if (isNormL) { oem = M_mask === 0 ? 0 : baseRisk; fixedPool += (M_mask === 0 ? 0 : baseRisk); }
+                            if (isNormL) { oem = (M_mask === 0 ? 0 : baseRisk); fixedPool += (M_mask === 0 ? 0 : baseRisk); }
 
-                            // 나머지 비중을 비정상 인자에 할당
+                            // 비정상 인자에 나머지 기여도 가중 분배
                             const remainingPool = 100 - fixedPool;
+                            const sDelta = !isNormS ? Math.pow(s - STANDARDS.speed, 2.5) * vFactor : 0;
+                            const fDelta = !isNormF ? Math.pow(STANDARDS.friction - f, 2.5) * 1500 * vFactor : 0;
+                            const lDelta = !isNormL ? Math.pow(l - STANDARDS.latency, 2.5) * 5000 * M_mask : 0;
+                            const deltaSum = sDelta + fDelta + lDelta || 1;
+
                             if (!isNormS) op = Math.round((sDelta / deltaSum) * remainingPool);
                             if (!isNormF) env = Math.round((fDelta / deltaSum) * remainingPool);
                             if (!isNormL && M_mask !== 0) oem = Math.round((lDelta / deltaSum) * remainingPool);
                             if (M_mask === 0) oem = 0;
                         }
 
-                        // 합계 100% 보정 (최대값에서 미세조정)
-                        const currentSum = (op || 0) + (env || 0) + (oem || 0);
-                        const diff = 100 - currentSum;
+                        // 100% 보정 합계
+                        const sum = (op || 0) + (env || 0) + (oem || 0);
+                        const diff = 100 - sum;
                         if (op >= env && op >= oem) op += diff;
                         else if (env >= op && env >= oem) env += diff;
                         else oem += diff;
@@ -188,13 +185,11 @@
                 });
             }, [selectedVehicle]);
 
-            // 판독 결과에 따른 동적 제목 매칭 (데이터와 100% 일치)
             const getDynamicScenarioTitle = (data) => {
                 if (!data) return "데이터 분석 대기 중";
                 const { op, env, oem } = data.liabilities;
                 const maxVal = Math.max(op, env, oem);
                 
-                // 모든 수치가 정상 범위일 때 (Base Risk)
                 if (op <= 5 && env <= 5 && (oem <= 5 || data.type === 'v')) return "물리적 회피 한계 사고 (Base Risk)";
                 
                 if (maxVal === op) return "규정 속도 초과에 의한 제동 거리 한계";
@@ -215,7 +210,7 @@
                 if (title.includes("Base Risk")) return `모든 제어 변수가 공학적 표준 범위 내에 있었으나, 찰나의 순간 물리적 회피 한계를 벗어난 불가항력적 사고로 판독되었습니다.`;
                 
                 let detail = "";
-                if (maxVal === op) detail = `시속 ${data.actual.speed.toFixed(1)}km의 과속 에너지가 ${selectedVehicle}의 관성 가중치와 결합하여 물리적 정지 한계 거리를 초과하였습니다. (기여도: ${op}%)`;
+                if (maxVal === op) detail = `시속 ${data.actual.speed.toFixed(1)}km의 과속 에너지가 차종 가중치와 결합하여 정지 한계 거리를 초과하였습니다. (기여도: ${op}%)`;
                 else if (maxVal === env) detail = `노면 마찰 계수가 ${data.actual.friction.toFixed(2)}μ로 급감하며 물리적 접지력이 상실된 것이 사고의 결정적 원인입니다. (기여도: ${env}%)`;
                 else detail = `시스템 반응 레이턴시가 ${data.actual.latency.toFixed(2)}s를 기록하며 설계 표준(0.10s)을 심각하게 이탈, 인지 오류가 핵심 결함으로 판독되었습니다. (기여도: ${oem}%)`;
 
@@ -262,7 +257,7 @@
                 <div className="p-8 max-w-[1600px] mx-auto min-h-screen flex flex-col bg-black text-left">
                     <header className="flex justify-between items-end border-b border-white/10 pb-6 mb-10 text-left">
                         <div>
-                            <div className="flex items-center gap-3 mb-1">
+                            <div className="flex items-center gap-3 mb-1 text-left">
                                 <span className="bg-[#deff9a] text-black text-[10px] font-black px-2 py-0.5 rounded uppercase font-bold tracking-tighter">Verified Infra</span>
                                 <h1 className="text-4xl font-black text-white italic tracking-tighter text-left uppercase">Motion Agent-V</h1>
                             </div>
@@ -314,10 +309,10 @@
                                     ))}
 
                                     <div className="pt-6 space-y-3">
-                                        <button onClick={startBuilding} disabled={!selectedProfile || isBuilding || isSimulating || currentBuiltSet.has(selectedProfile.range[0])} className="w-full bg-[#deff9a] text-black py-4 rounded-xl font-black text-sm mt-4 hover:brightness-110 disabled:opacity-20 transition-all shadow-xl uppercase">
-                                            {selectedProfile ? (currentBuiltSet.has(selectedProfile.range[0]) ? "이미 구축 완료됨" : `${selectedProfile.name} 생성`) : "알고리즘 선택"}
+                                        <button onClick={startBuilding} disabled={!selectedProfile || isBuilding || isSimulating || currentBuiltSet.has(selectedProfile.range[0])} className="w-full bg-[#deff9a] text-black py-4 rounded-xl font-black text-sm mt-4 hover:brightness-110 disabled:opacity-20 transition-all shadow-xl uppercase tracking-tighter">
+                                            {selectedProfile ? (currentBuiltSet.has(selectedProfile.range[0]) ? "이미 구축 완료됨" : `${selectedProfile.name} 생성`) : "알고리즘을 선택하십시오"}
                                         </button>
-                                        <button onClick={runAccidentSim} disabled={currentBuiltSet.size === 0 || isBuilding || isSimulating} className="w-full bg-red-600 text-white py-4 rounded-xl font-black text-sm hover:bg-red-500 disabled:opacity-20 transition-all shadow-xl flex items-center justify-center gap-3 uppercase">
+                                        <button onClick={runAccidentSim} disabled={currentBuiltSet.size === 0 || isBuilding || isSimulating} className="w-full bg-red-600 text-white py-4 rounded-xl font-black text-sm hover:bg-red-500 disabled:opacity-20 transition-all shadow-xl flex items-center justify-center gap-3 uppercase tracking-tighter">
                                             사고 시뮬레이션 <i className="fa-solid fa-car-burst"></i>
                                         </button>
                                     </div>
@@ -359,9 +354,9 @@
                                     <div className="mt-10 p-10 bg-white/[0.03] rounded-[35px] border border-white/10 animate-in slide-in-from-bottom-6 duration-500 text-left">
                                         <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-12 text-left">
                                             <div className="text-left">
-                                                <div className="flex items-center gap-4 mb-8 text-left">
+                                                <div className="flex items-center gap-4 mb-8 text-left text-left">
                                                     <span className="text-[11px] bg-blue-600 text-white px-4 py-1.5 rounded-full font-black uppercase shadow-lg shadow-blue-500/20 text-left">정밀 인과 분석 성공</span>
-                                                    <h3 className="text-3xl font-black tracking-tighter text-white text-left uppercase text-left">사례 #{String(libraryData[currentCaseIndex].id).padStart(4, '0')} : <span className="text-[#deff9a] ml-4">[{getDynamicScenarioTitle(libraryData[currentCaseIndex])}]</span></h3>
+                                                    <h3 className="text-3xl font-black tracking-tighter text-white text-left uppercase text-left text-left">사례 #{String(libraryData[currentCaseIndex].id).padStart(4, '0')} : <span className="text-[#deff9a] ml-4">[{getDynamicScenarioTitle(libraryData[currentCaseIndex])}]</span></h3>
                                                 </div>
                                                 
                                                 <div className="overflow-hidden rounded-2xl border border-white/5 bg-black/40 mb-10 shadow-2xl">
@@ -398,8 +393,8 @@
                                                 </div>
 
                                                 <div className="border-t border-white/10 pt-8 text-left text-left">
-                                                    <span className="text-[#deff9a] text-[12px] font-black uppercase tracking-widest mb-4 block text-left font-mono text-left">Expert Diagnosis Summary</span>
-                                                    <p className="text-xl leading-relaxed text-slate-200 font-medium italic text-left text-left">
+                                                    <span className="text-[#deff9a] text-[12px] font-black uppercase tracking-widest mb-4 block text-left font-mono text-left text-left">Expert Diagnosis Summary</span>
+                                                    <p className="text-xl leading-relaxed text-slate-200 font-medium italic text-left text-left text-left">
                                                         {getPrimaryCauseReport(libraryData[currentCaseIndex])}
                                                     </p>
                                                 </div>
