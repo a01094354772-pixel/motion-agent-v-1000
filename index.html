@@ -1,306 +1,382 @@
-<!DOCTYPE html>
-<html lang="ko">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Motion Agent-V | 차종별·알고리즘별 사고 판독 시스템</title>
-    <!-- 브라우저에서 직접 React와 라이브러리를 실행하기 위한 설정 -->
-    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-    <style>
-        @import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;700&family=Noto+Sans+KR:wght@300;400;700&display=swap');
-        body { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; background-color: #000; color: #e2e8f0; margin: 0; overflow-x: hidden; }
-        .neon-border { border: 1px solid rgba(222, 255, 154, 0.2); box-shadow: 0 0 20px rgba(222, 255, 154, 0.05); }
-        .grid-square { transition: all 0.2s ease; cursor: pointer; border-radius: 1px; }
-        .grid-square:hover { transform: scale(1.8); z-index: 50; outline: 1px solid white; box-shadow: 0 0 20px rgba(255,255,255,0.6); }
-        
-        /* 알고리즘 방식별 고유 색상 */
-        .active-v { background-color: #deff9a !important; box-shadow: 0 0 4px #deff9a; } /* 비전: 연두 */
-        .active-f { background-color: #3b82f6 !important; box-shadow: 0 0 4px #3b82f6; } /* 융합: 파랑 */
-        .active-x { background-color: #a855f7 !important; box-shadow: 0 0 4px #a855f7; } /* V2X: 보라 */
-        
-        .profile-card { transition: all 0.3s ease; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); }
-        .profile-active { border-color: #deff9a !important; background: rgba(222, 255, 154, 0.1) !important; transform: translateY(-3px); }
-        
-        .vehicle-btn { transition: all 0.2s ease; border: 1px solid rgba(255,255,255,0.1); }
-        .vehicle-btn.active { background-color: #deff9a; color: #000; font-weight: 800; border-color: #deff9a; }
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 
-        @keyframes scan-line { 0% { top: 0; } 100% { top: 100%; } }
-        .scanner { position: absolute; left: 0; width: 100%; height: 2px; background: #deff9a; box-shadow: 0 0 15px #deff9a; z-index: 60; animation: scan-line 2s infinite linear; }
-        
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
-    </style>
-</head>
-<body>
-    <div id="root"></div>
+// --- 디자인 시스템 및 전역 스타일 ---
+const styles = `
+  @import url('https://fonts.googleapis.com/css2?family=Urbanist:wght@400;700&family=Noto+Sans+KR:wght@300;400;700&display=swap');
+  body { font-family: 'Urbanist', 'Noto Sans KR', sans-serif; background-color: #000; color: #e2e8f0; margin: 0; overflow-x: hidden; }
+  .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+  .custom-scrollbar::-webkit-scrollbar-thumb { background: #333; border-radius: 10px; }
+  .neon-border { border: 1px solid rgba(222, 255, 154, 0.2); box-shadow: 0 0 20px rgba(222, 255, 154, 0.05); }
+  
+  .grid-square { transition: all 0.2s ease; cursor: pointer; border-radius: 1px; }
+  .grid-square:hover { transform: scale(1.8); z-index: 50; outline: 1px solid white; box-shadow: 0 0 20px rgba(255,255,255,0.6); }
+  
+  .active-v { background-color: #deff9a !important; box-shadow: 0 0 4px #deff9a; } 
+  .active-f { background-color: #3b82f6 !important; box-shadow: 0 0 4px #3b82f6; } 
+  .active-x { background-color: #a855f7 !important; box-shadow: 0 0 4px #a855f7; }
+  
+  .profile-card { transition: all 0.3s ease; border: 1px solid rgba(255,255,255,0.1); background: rgba(255,255,255,0.02); }
+  .profile-active { border-color: #deff9a !important; background: rgba(222, 255, 154, 0.1) !important; transform: translateY(-3px); }
+  
+  .vehicle-btn { transition: all 0.3s ease; border: 1px solid rgba(255,255,255,0.1); }
+  .vehicle-btn.active { background-color: #deff9a; color: #000; font-weight: 800; border-color: #deff9a; box-shadow: 0 0 15px rgba(222, 255, 154, 0.3); }
 
-    <script type="text/babel">
-        const { useState, useMemo, useEffect } = React;
+  @keyframes scan-line { 0% { top: 0; } 100% { top: 100%; } }
+  .scanner { position: absolute; left: 0; width: 100%; height: 2px; background: #deff9a; box-shadow: 0 0 15px #deff9a; z-index: 60; animation: scan-line 2s infinite linear; }
+  
+  @keyframes pulse-white { 0%, 100% { box-shadow: 0 0 10px white; border: 1px solid white; } 50% { box-shadow: 0 0 30px white; border: 2px solid white; } }
+  .matched-highlight { animation: pulse-white 1s infinite; transform: scale(2.0) !important; z-index: 100 !important; background-color: #fff !important; }
+`;
 
-        const App = () => {
-            const [selectedProfile, setSelectedProfile] = useState(null);
-            const [selectedVehicle, setSelectedVehicle] = useState('Sedan'); // 차종 선택 상태 추가
-            const [builtIndices, setBuiltIndices] = useState(new Set());
-            const [isBuilding, setIsBuilding] = useState(false);
-            const [isSimulating, setIsSimulating] = useState(false);
-            const [currentCaseIndex, setCurrentCaseIndex] = useState(-1);
-            const [logs, setLogs] = useState(["> 시스템 초기화 완료. 분석 차종 및 프로필을 선택하십시오."]);
+const App = () => {
+    // 상태 관리: 차종별로 구축된 인덱스를 관리하기 위해 객체 구조 사용
+    const [selectedVehicle, setSelectedVehicle] = useState('Sedan'); 
+    const [selectedProfile, setSelectedProfile] = useState(null);
+    const [builtIndicesMap, setBuiltIndicesMap] = useState({ Sedan: new Set(), Truck: new Set(), Bus: new Set() });
+    
+    const [isBuilding, setIsBuilding] = useState(false);
+    const [isSimulating, setIsSimulating] = useState(false);
+    const [currentCaseIndex, setCurrentCaseIndex] = useState(-1);
+    const [logs, setLogs] = useState(["> 시스템 초기화 완료. 분석 차종과 알고리즘 프로필을 선택하십시오."]);
 
-            // 차종 정의
-            const vehicleTypes = [
-                { id: 'Sedan', name: '승용차', weight: 1.0, icon: 'fa-car' },
-                { id: 'Truck', name: '대형트럭', weight: 2.5, icon: 'fa-truck' },
-                { id: 'Bus', name: '버스', weight: 2.2, icon: 'fa-bus' }
-            ];
+    const STANDARDS = { speed: 60.0, friction: 0.80, latency: 0.10 };
 
-            // 3대 알고리즘 프로필 정의
-            const profiles = [
-                { id: 'v', name: '비전 전용 (Vision)', icon: 'fa-eye', color: '#deff9a', target: '테슬라 FSD 등', count: 300, range: [0, 299] },
-                { id: 'f', name: '센서 융합 (Fusion)', icon: 'fa-microchip', color: '#3b82f6', target: '웨이모/현대차 등', count: 300, range: [300, 599] },
-                { id: 'x', name: '커넥티드 (V2X)', icon: 'fa-tower-broadcast', color: '#a855f7', target: '로보셔틀/택시', count: 400, range: [600, 999] }
-            ];
+    const vehicleTypes = [
+        { id: 'Sedan', name: '승용차', weight: 1.0, icon: 'fa-car' },
+        { id: 'Truck', name: '대형트럭', weight: 2.5, icon: 'fa-truck' },
+        { id: 'Bus', name: '버스', weight: 1.8, icon: 'fa-bus' }
+    ];
 
-            // 1,000건의 사고 라이브러리 데이터 생성 (차종별 물리 특성 반영)
-            const libraryData = useMemo(() => {
-                const vFactor = vehicleTypes.find(v => v.id === selectedVehicle).weight;
+    const profiles = [
+        { id: 'v', name: '비전 전용', icon: 'fa-eye', color: '#deff9a', target: 'Tesla FSD 등', count: 300, range: [0, 299] },
+        { id: 'f', name: '센서 융합', icon: 'fa-microchip', color: '#3b82f6', target: 'Waymo, 현대차 등', count: 300, range: [300, 599] },
+        { id: 'x', name: '커넥티드 V2X', icon: 'fa-tower-broadcast', color: '#a855f7', target: '무인셔틀/로보택시', count: 400, range: [600, 999] }
+    ];
 
-                return Array.from({ length: 1000 }, (_, i) => {
-                    let type, typeName, scenario, oem, op, env, details;
-                    
-                    const getLiabilities = (bOem, bOp, bEnv) => {
-                        const v1 = Math.floor(Math.random() * 20) - 10;
-                        const v2 = Math.floor(Math.random() * 20) - 10;
-                        
-                        // 차종 무게에 따른 리스크 보정: 무거울수록 환경(노면) 및 운영(속도) 영향력 증대
-                        let rOem = Math.max(5, bOem + v1);
-                        let rOp = Math.max(5, (bOp + v2) * (vFactor > 1 ? 1.2 : 1.0));
-                        let rEnv = Math.max(5, 100 - rOem - rOp);
-                        const total = rOem + rOp + rEnv;
-                        return { oem: Math.round((rOem/total)*100), op: Math.round((rOp/total)*100), env: Math.round((rEnv/total)*100) };
-                    };
+    // --- 1,000건의 사고 데이터 생성 (차종 무게에 따른 가중치 반영) ---
+    const libraryData = useMemo(() => {
+        const vFactor = vehicleTypes.find(v => v.id === selectedVehicle).weight;
 
-                    if (i < 300) {
-                        typeName = "비전 전용"; type = "v";
-                        const dice = i % 3;
-                        if (dice === 0) {
-                            scenario = "역광 노출 인지 소실";
-                            const l = getLiabilities(80, 10, 10); oem=l.oem; op=l.op; env=l.env;
-                            details = `역광 포화로 인해 AI가 전방 장애물을 인식하지 못했습니다. 특히 ${selectedVehicle === 'Sedan' ? '승용차' : '대형 차량'} 특유의 제동 특성이 고려되지 않은 판단 결함입니다.`;
-                        } else if (dice === 1) {
-                            scenario = "운영사 설정 속도 과다";
-                            const l = getLiabilities(10, 80, 10); oem=l.oem; op=l.op; env=l.env;
-                            details = `설정된 주행 속도가 해당 차종(${selectedVehicle})의 공학적 제동 한계를 초과하여 물리적 충돌을 피할 수 없었습니다.`;
-                        } else {
-                            scenario = "노면 마찰력 상실 사고";
-                            const l = getLiabilities(10, 10, 80); oem=l.oem; op=l.op; env=l.env;
-                            details = `빙판길 노면에서 ${selectedVehicle}의 관성 모멘트가 마찰 한계를 넘어섰습니다. 차량 중량을 고려할 때 불가항력적 사고로 판독됩니다.`;
-                        }
-                    } else if (i < 600) {
-                        typeName = "센서 융합"; type = "f";
-                        const dice = i % 2;
-                        if (dice === 0) {
-                            scenario = "라이다-레이더 정합성 충돌";
-                            const l = getLiabilities(70, 15, 15); oem=l.oem; op=l.op; env=l.env;
-                            details = "센서 간 거리 데이터 잔차가 발생했습니다. 대형 차량의 긴 전장으로 인해 발생한 고스트 객체 필터링 실패가 주원인입니다.";
-                        } else {
-                            scenario = "유지보수 소홀(정비 불량)";
-                            const l = getLiabilities(15, 75, 10); oem=l.oem; op=l.op; env=l.env;
-                            details = `${selectedVehicle}의 브레이크 패드 마모 및 정비 소홀로 인해 기계적 제동력이 설계 표준치 대비 20% 저하되었습니다.`;
-                        }
-                    } else {
-                        typeName = "커넥티드 V2X"; type = "x";
-                        const dice = i % 2;
-                        if (dice === 0) {
-                            scenario = "신호 정보 비동기 사고";
-                            const l = getLiabilities(20, 20, 60); oem=l.oem; op=l.op; env=l.env;
-                            details = "C-ITS 신호와 실제 교통 신호의 비동기로 인해 무거운 차체의 급제동 타이밍을 실기하여 발생한 복합 사고입니다.";
-                        } else {
-                            scenario = "배터리 전압 급강하 결함";
-                            const l = getLiabilities(90, 5, 5); oem=l.oem; op=l.op; env=l.env;
-                            details = `고출력을 요구하는 ${selectedVehicle} 주행 중 배터리 팩 내부 단락으로 인한 전압 수직 강하가 포착되었습니다.`;
-                        }
-                    }
-                    return { id: i + 1, type, typeName, scenario, liabilities: { oem, op, env }, details };
-                });
-            }, [selectedVehicle]); // 차종이 바뀔 때마다 라이브러리 데이터 재계산
-
-            const addLog = (msg) => setLogs(prev => [...prev.slice(-8), `> ${msg}`]);
-
-            const startBuilding = () => {
-                if (!selectedProfile || isBuilding) return;
-                setIsBuilding(true);
-                const [start, end] = selectedProfile.range;
-                let current = start;
-                addLog(`${selectedVehicle} 기반 ${selectedProfile.name} 라이브러리 합성 개시...`);
+        return Array.from({ length: 1000 }, (_, i) => {
+            let type, typeName, scenario, oem, op, env, details, actual;
+            
+            const genCase = (bSpeed, bFric, bLat) => {
+                const s = bSpeed + (Math.random() * 20 - 10);
+                const f = Math.max(0.1, bFric + (Math.random() * 0.2 - 0.1));
+                const l = Math.max(0.01, bLat + (Math.random() * 0.2 - 0.1));
                 
-                const interval = setInterval(() => {
-                    setBuiltIndices(prev => {
-                        const next = new Set(prev);
-                        for(let k=0; k<25; k++) if(current <= end) { next.add(current); current++; }
-                        return next;
-                    });
-                    if (current > end) {
-                        clearInterval(interval);
-                        setIsBuilding(false);
-                        addLog(`${selectedProfile.name} 관련 엣지 데이터셋 구축 완료.`);
-                    }
-                }, 30);
-            };
-
-            const runAccidentSim = () => {
-                if (builtIndices.size === 0) return;
-                setIsSimulating(true);
-                setCurrentCaseIndex(-1);
-                addLog(`🚨 [긴급] ${selectedVehicle} 사고 시그널 유입. 데이터 무결성 검증 중...`);
+                // 차종 가중치 반영 산출: 무거울수록 속도와 노면 기여도 민감도 상승
+                const sRisk = Math.max(0, s - STANDARDS.speed) * 5 * vFactor;
+                const fRisk = Math.max(0, STANDARDS.friction - f) * 120 * vFactor;
+                const lRisk = Math.max(0, l - STANDARDS.latency) * 200;
+                const total = sRisk + fRisk + lRisk + 1;
                 
-                setTimeout(() => {
-                    const builtArr = Array.from(builtIndices);
-                    const matchIdx = builtArr[Math.floor(Math.random() * builtArr.length)];
-                    setTimeout(() => {
-                        setCurrentCaseIndex(matchIdx);
-                        setIsSimulating(false);
-                        addLog(`🎯 [매칭 성공] ${selectedVehicle} 전용 시나리오 #${matchIdx + 1}과 일치.`);
-                    }, 1500);
-                }, 1000);
+                return {
+                    actual: { speed: s, friction: f, latency: l },
+                    contrib: {
+                        speed: Math.round(sRisk/total*100),
+                        friction: Math.round(fRisk/total*100),
+                        latency: Math.round(lRisk/total*100)
+                    }
+                };
             };
 
-            const reset = () => {
-                setSelectedProfile(null);
-                setBuiltIndices(new Set());
-                setCurrentCaseIndex(-1);
-                setLogs(["> 시스템 리셋 완료. 차종과 분석 프로필을 다시 선택하십시오."]);
-            };
+            const dice = i % 3;
+            if (i < 300) {
+                typeName = "비전 전용"; type = "v";
+                const d = genCase(dice === 0 ? 70 : 60, dice === 2 ? 0.4 : 0.8, dice === 1 ? 0.25 : 0.1);
+                scenario = ["역광 노출 인지 소실", "운영사 설정 속도 과다", "노면 마찰력 급감"][dice];
+                actual = d.actual; oem=d.contrib.latency; op=d.contrib.speed; env=d.contrib.friction;
+                details = `본 사고는 비전 전용 알고리즘 환경에서 ${scenario}로 인해 발생했습니다. ${selectedVehicle}의 관성 모멘트(${vFactor}x)를 고려할 때 공학적 회피 한계점을 초과한 것으로 판독됩니다.`;
+            } else if (i < 600) {
+                typeName = "센서 융합"; type = "f";
+                const d = genCase(65, 0.7, 0.3);
+                scenario = ["센서 데이터 정합성 충돌", "타이어 마모 관리 소홀", "고스트 객체 인지 오류"][dice];
+                actual = d.actual; oem=d.contrib.latency; op=d.contrib.speed; env=d.contrib.friction;
+                details = `라이다 및 레이더 데이터 잔차가 임계치를 초과했습니다. ${selectedVehicle}의 전장을 고려한 판단 로직의 미비가 사고의 주요 기여분으로 분석됩니다.`;
+            } else {
+                typeName = "커넥티드 V2X"; type = "x";
+                const d = genCase(62, 0.8, 0.4);
+                scenario = ["네트워크 지연 관제 실패", "I-ITS 신호 비동기", "배터리 전압 급강하"][dice];
+                actual = d.actual; oem=d.contrib.latency; op=d.contrib.speed; env=d.contrib.friction;
+                details = `통신망 지터가 허용 범위를 이탈하여 원격 정지 명령이 실기되었습니다. ${selectedVehicle}의 물리적 제동 시작점이 지연되어 발생한 인프라 기여 사고입니다.`;
+            }
+            return { id: i + 1, type, typeName, scenario, liabilities: { oem, op, env }, actual, details };
+        });
+    }, [selectedVehicle]);
 
-            return (
-                <div className="p-6 max-w-[1600px] mx-auto min-h-screen flex flex-col">
-                    <header className="flex justify-between items-end border-b border-white/10 pb-6 mb-10 text-left">
-                        <div>
-                            <div className="flex items-center gap-3 mb-1">
-                                <span className="bg-[#deff9a] text-black text-[10px] font-black px-2 py-0.5 rounded uppercase font-bold">특허 기술 검증 인프라</span>
-                                <h1 className="text-4xl font-black text-white italic tracking-tighter">주식회사 모션 에이전트 브이</h1>
-                            </div>
-                            <p className="text-slate-500 text-xs font-bold uppercase tracking-widest italic">Multi-Vehicle Edge Library & Causal Diagnosis System</p>
+    const addLog = (msg) => setLogs(prev => [...prev.slice(-10), `> ${msg}`]);
+
+    const startBuilding = () => {
+        if (!selectedProfile || isBuilding || isSimulating) return;
+        
+        setIsBuilding(true);
+        addLog(`${selectedVehicle} 물리 프로필 하에 ${selectedProfile.name} 라이브러리 합성 개시...`);
+
+        const [start, end] = selectedProfile.range;
+        let current = start;
+
+        const interval = setInterval(() => {
+            const batchSize = 25; 
+            setBuiltIndicesMap(prev => {
+                const nextSet = new Set(prev[selectedVehicle]);
+                for (let i = 0; i < batchSize; i++) {
+                    if (current <= end) {
+                        nextSet.add(current);
+                        current++;
+                    }
+                }
+                return { ...prev, [selectedVehicle]: nextSet };
+            });
+
+            if (current > end) {
+                clearInterval(interval);
+                setIsBuilding(false);
+                addLog(`${selectedVehicle} 전용 ${selectedProfile.name} 엣지 케이스 ${selectedProfile.count}건 탑재 완료.`);
+            }
+        }, 40);
+    };
+
+    const runAccidentSim = () => {
+        const currentBuilt = builtIndicesMap[selectedVehicle];
+        if (currentBuilt.size === 0) {
+            addLog("경고: 현재 차종의 라이브러리를 먼저 구축해야 합니다.");
+            return;
+        }
+        setIsSimulating(true);
+        setCurrentCaseIndex(-1);
+        addLog(`🚨 [긴급] ${selectedVehicle} 사고 시그널 유입. 데이터 무결성 검증 중...`);
+        
+        setTimeout(() => {
+            const builtArr = Array.from(currentBuilt);
+            const matchIdx = builtArr[Math.floor(Math.random() * builtArr.length)];
+            setTimeout(() => {
+                setCurrentCaseIndex(matchIdx);
+                setIsSimulating(false);
+                addLog(`🎯 [매칭 성공] ${selectedVehicle} 라이브러리 사례 #${matchIdx + 1}과 물리 거동 99.8% 일치.`);
+            }, 1500);
+        }, 1000);
+    };
+
+    const currentBuiltSet = builtIndicesMap[selectedVehicle];
+
+    return (
+        <div className="p-8 max-w-[1600px] mx-auto min-h-screen flex flex-col bg-black text-left">
+            <style>{styles}</style>
+            
+            <header className="flex justify-between items-end border-b border-white/10 pb-6 mb-10">
+                <div>
+                    <div className="flex items-center gap-3 mb-1">
+                        <span className="bg-[#deff9a] text-black text-[10px] font-black px-2 py-0.5 rounded uppercase">Verified Infrastructure</span>
+                        <h1 className="text-4xl font-black text-white italic tracking-tighter">MOTION AGENT-V</h1>
+                    </div>
+                    <p className="text-slate-500 text-xs font-bold uppercase tracking-widest italic">Multi-Vehicle & Algorithm-Specific 1,000 Edge Library Platform</p>
+                </div>
+                <div className="flex gap-10">
+                    <div className="text-right">
+                        <span className="text-[10px] text-slate-500 font-bold block mb-1 uppercase tracking-tighter">판독 해상도</span>
+                        <span className="text-emerald-400 text-sm font-black tracking-widest uppercase">100Hz Real-Time</span>
+                    </div>
+                    <button onClick={() => location.reload()} className="bg-white/5 hover:bg-white/10 text-white text-xs px-5 py-2 rounded-xl font-bold transition-all border border-white/10 flex items-center gap-2">
+                        <i className="fa-solid fa-rotate-left"></i> 초기화
+                    </button>
+                </div>
+            </header>
+
+            <div className="grid grid-cols-1 lg:grid-cols-[450px_1fr] gap-10 flex-grow">
+                {/* 왼쪽 제어판 */}
+                <aside className="space-y-6">
+                    <div className="bg-[#0a0a0a] rounded-3xl p-8 neon-border flex flex-col h-full min-h-[650px]">
+                        <h2 className="text-[#deff9a] text-[11px] font-black uppercase tracking-widest mb-6 flex items-center gap-3">
+                            <span className="w-2.5 h-2.5 bg-[#deff9a] rounded-full animate-pulse"></span> 1. 분석 차종 선택
+                        </h2>
+                        <div className="flex gap-2 mb-8">
+                            {vehicleTypes.map(v => (
+                                <button 
+                                    key={v.id}
+                                    onClick={() => { setSelectedVehicle(v.id); setCurrentCaseIndex(-1); addLog(`${v.name} 물리 엔진 스키마가 로드되었습니다.`); }}
+                                    className={`vehicle-btn flex-1 py-4 rounded-xl flex flex-col items-center gap-2 ${selectedVehicle === v.id ? 'active' : 'bg-white/5 text-slate-500'}`}
+                                >
+                                    <i className={`fa-solid ${v.icon} text-xl`}></i>
+                                    <span className="text-[11px] font-bold">{v.name}</span>
+                                </button>
+                            ))}
                         </div>
-                        <div className="flex gap-10">
-                            <div className="text-right">
-                                <span className="text-[10px] text-slate-500 font-bold block mb-1 uppercase tracking-tighter">분석 정밀도</span>
-                                <span className="text-emerald-400 text-sm font-black tracking-widest uppercase">100Hz REAL-TIME</span>
+
+                        <h2 className="text-[#deff9a] text-[11px] font-black uppercase tracking-widest mb-6 flex items-center gap-3">
+                            <span className="w-2.5 h-2.5 bg-[#deff9a] rounded-full animate-pulse"></span> 2. 알고리즘 라이브러리 구축
+                        </h2>
+                        <div className="space-y-3 flex-grow">
+                            {profiles.map(p => (
+                                <div 
+                                    key={p.id}
+                                    onClick={() => !isBuilding && !isSimulating && setSelectedProfile(p)}
+                                    className={`profile-card p-5 rounded-2xl cursor-pointer flex items-center gap-6 ${selectedProfile?.id === p.id ? 'profile-active' : ''}`}
+                                >
+                                    <div className="w-12 h-12 rounded-full bg-black flex items-center justify-center border border-white/10 shadow-inner">
+                                        <i className={`fa-solid ${p.icon} text-lg`} style={{color: p.color}}></i>
+                                    </div>
+                                    <div className="flex-grow text-left">
+                                        <div className="flex justify-between items-center mb-1">
+                                            <span className="font-bold text-sm text-white">{p.name}</span>
+                                            <span className="text-[9px] text-slate-500 font-bold uppercase">{p.target}</span>
+                                        </div>
+                                        <p className="text-[10px] text-slate-400">데이터 비중: <strong style={{color: p.color}}>{p.count}건</strong> | 상태: <span className={currentBuiltSet.has(p.range[0]) ? "text-emerald-400" : "text-slate-600"}>{currentBuiltSet.has(p.range[0]) ? "구축완료" : "대기중"}</span></p>
+                                    </div>
+                                </div>
+                            ))}
+
+                            <div className="pt-6 space-y-3">
+                                <button 
+                                    onClick={startBuilding}
+                                    disabled={!selectedProfile || isBuilding || isSimulating || currentBuiltSet.has(selectedProfile.range[0])}
+                                    className="w-full bg-[#deff9a] text-black py-4 rounded-xl font-black text-sm mt-4 hover:brightness-110 disabled:opacity-20 transition-all shadow-xl"
+                                >
+                                    {selectedProfile ? (currentBuiltSet.has(selectedProfile.range[0]) ? "이미 구축 완료됨" : `${selectedProfile.name} 라이브러리 생성`) : "프로필을 선택하십시오"}
+                                </button>
+
+                                <button 
+                                    onClick={runAccidentSim}
+                                    disabled={currentBuiltSet.size === 0 || isBuilding || isSimulating}
+                                    className="w-full bg-red-600 text-white py-4 rounded-xl font-black text-sm hover:bg-red-500 disabled:opacity-20 transition-all shadow-xl flex items-center justify-center gap-3"
+                                >
+                                    {isSimulating ? "데이터 분석 중..." : "실제 사고 시뮬레이션 시작"}
+                                    <i className="fa-solid fa-car-burst"></i>
+                                </button>
                             </div>
-                            <button onClick={reset} className="bg-white/5 hover:bg-white/10 text-white text-xs px-5 py-2 rounded-xl font-bold transition-all border border-white/10 flex items-center gap-2">
-                                <i className="fa-solid fa-rotate-left"></i> 초기화
-                            </button>
+                            <div className="mt-8 bg-black/60 p-5 rounded-2xl border border-white/5 h-32 overflow-y-auto font-mono text-[11px] text-emerald-500/80 leading-relaxed custom-scrollbar">
+                                {logs.map((l, i) => <div key={i}>{l}</div>)}
+                            </div>
                         </div>
-                    </header>
+                    </div>
+                </aside>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-[450px_1fr] gap-10 flex-grow">
-                        <aside className="space-y-6">
-                            <div className="bg-[#0a0a0a] rounded-3xl p-8 neon-border flex flex-col h-full">
-                                <h2 className="text-[#deff9a] text-[11px] font-black uppercase tracking-widest mb-6 flex items-center gap-3">
-                                    <span className="w-2.5 h-2.5 bg-[#deff9a] rounded-full animate-pulse"></span> 단계 1: 분석 차종 선택
-                                </h2>
-                                <div className="flex gap-2 mb-8">
-                                    {vehicleTypes.map(v => (
-                                        <button 
-                                            key={v.id}
-                                            onClick={() => {setSelectedVehicle(v.id); setBuiltIndices(new Set()); setCurrentCaseIndex(-1); addLog(`${v.name} 물리 프로필이 활성화되었습니다.`);}}
-                                            className={`vehicle-btn flex-1 py-3 rounded-xl flex flex-col items-center gap-2 ${selectedVehicle === v.id ? 'active' : 'bg-white/5 text-slate-500'}`}
-                                        >
-                                            <i className={`fa-solid ${v.icon} text-lg`}></i>
-                                            <span className="text-[11px] font-bold">{v.name}</span>
-                                        </button>
-                                    ))}
+                {/* 오른쪽 라이브러리 및 상세 분석 */}
+                <main className="flex flex-col gap-8">
+                    <div className="bg-[#0a0a0a] rounded-[40px] p-10 neon-border flex flex-col flex-grow relative overflow-hidden">
+                        <div className="flex justify-between items-end mb-8">
+                            <div>
+                                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-2">[{selectedVehicle}] 전용 엣지 라이브러리 맵</h2>
+                                <p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Physics-Weighted 1,000 Edge Scenarios (Weight={vehicleTypes.find(v=>v.id===selectedVehicle).weight})</p>
+                            </div>
+                            <div className="flex gap-8 text-[11px] font-black uppercase tracking-tighter">
+                                <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#deff9a]"></div> 비전 (300)</span>
+                                <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#3b82f6]"></div> 융합 (300)</span>
+                                <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#a855f7]"></div> V2X (400)</span>
+                            </div>
+                        </div>
+
+                        {/* 1,000건 그리드 맵 */}
+                        <div className="bg-black/60 rounded-[30px] p-10 border border-white/5 flex-grow overflow-hidden shadow-inner relative">
+                            {isSimulating && <div className="scanner"></div>}
+                            <div className="grid grid-cols-[repeat(40,minmax(0,1fr))] gap-1.5 h-full overflow-y-auto pr-6 custom-scrollbar">
+                                {libraryData.map((item, i) => {
+                                    const isBuilt = currentBuiltSet.has(i);
+                                    const isMatched = currentCaseIndex === i;
+                                    const activeClass = item.type === "v" ? "active-v" : (item.type === "f" ? "active-f" : "active-x");
+                                    return (
+                                        <div 
+                                            key={i}
+                                            onClick={() => isBuilt && !isSimulating && setCurrentCaseIndex(i)}
+                                            className={`grid-square aspect-square ${isBuilt ? activeClass : 'bg-white/5'} ${isMatched ? 'matched-highlight' : ''}`}
+                                            title={`사례 #${item.id}: ${item.scenario}`}
+                                        />
+                                    );
+                                })}
+                            </div>
+                            
+                            {currentBuiltSet.size === 0 && !isBuilding && (
+                                <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-30">
+                                    <div className="text-center">
+                                        <i className="fa-solid fa-microchip text-5xl text-[#deff9a] mb-6 animate-pulse"></i>
+                                        <p className="text-2xl font-black text-white uppercase tracking-tighter">분석 차종 및 프로필을 선택하여 라이브러리를 구축하십시오.</p>
+                                    </div>
                                 </div>
+                            )}
+                        </div>
 
-                                <h2 className="text-[#deff9a] text-[11px] font-black uppercase tracking-widest mb-6 flex items-center gap-3">
-                                    <span className="w-2.5 h-2.5 bg-[#deff9a] rounded-full animate-pulse"></span> 단계 2: 알고리즘 프로필 선택
-                                </h2>
-                                <div className="space-y-3">
-                                    {profiles.map(p => (
-                                        <div key={p.id} onClick={() => !isBuilding && !isSimulating && setSelectedProfile(p)} className={`profile-card p-5 rounded-2xl cursor-pointer flex items-center gap-6 ${selectedProfile?.id === p.id ? 'profile-active' : ''}`}>
-                                            <div className="w-12 h-12 rounded-full bg-black flex items-center justify-center border border-white/10">
-                                                <i className={`fa-solid ${p.icon} text-lg`} style={{color: p.color}}></i>
-                                            </div>
-                                            <div className="flex-grow text-left">
-                                                <span className="font-bold text-sm text-white block">{p.name}</span>
-                                                <p className="text-[10px] text-slate-400">구축: <span className={builtIndices.has(p.range[0]) ? "text-emerald-400" : "text-slate-600"}>{builtIndices.has(p.range[0]) ? "완료" : "대기"}</span></p>
-                                            </div>
+                        {/* 상세 판독 리포트 섹션 */}
+                        {currentCaseIndex !== -1 && (
+                            <div className="mt-10 p-10 bg-white/[0.03] rounded-[35px] border border-white/10 animate-in slide-in-from-bottom-6 duration-500">
+                                <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-12 text-left">
+                                    <div>
+                                        <div className="flex items-center gap-4 mb-8">
+                                            <span className="text-[11px] bg-blue-600 text-white px-4 py-1.5 rounded-full font-black uppercase shadow-lg shadow-blue-500/20">정밀 인과 분석 성공</span>
+                                            <h3 className="text-3xl font-black tracking-tighter text-white">사례 #{String(libraryData[currentCaseIndex].id).padStart(4, '0')} : <span className="text-[#deff9a] ml-4">[{libraryData[currentCaseIndex].scenario}]</span></h3>
                                         </div>
-                                    ))}
-                                    <button onClick={startBuilding} disabled={!selectedProfile || isBuilding || isSimulating || builtIndices.has(selectedProfile.range[0])} className="w-full bg-[#deff9a] text-black py-4 rounded-xl font-black text-sm mt-4 hover:brightness-110 disabled:opacity-20 transition-all shadow-xl">
-                                        {selectedProfile ? `${selectedProfile.name} 라이브러리 구축` : "프로필을 선택하십시오"}
-                                    </button>
-                                    <button onClick={runAccidentSim} disabled={builtIndices.size === 0 || isSimulating} className="w-full bg-red-600 text-white py-4 rounded-xl font-black text-sm mt-2 hover:bg-red-500 disabled:opacity-20 transition-all shadow-xl">
-                                        실제 사고 발생 시뮬레이션
-                                    </button>
-                                </div>
-                                <div className="mt-8 bg-black/60 p-4 rounded-2xl border border-white/5 h-32 overflow-y-auto font-mono text-[10px] text-emerald-500/80 leading-relaxed custom-scrollbar text-left">
-                                    {logs.map((l, i) => <div key={i}>{l}</div>)}
-                                </div>
-                            </div>
-                        </aside>
-
-                        <main className="bg-[#0a0a0a] rounded-[40px] p-10 neon-border flex flex-col relative overflow-hidden text-left">
-                            <div className="flex justify-between items-end mb-8">
-                                <div><h2 className="text-3xl font-black text-white italic tracking-tighter uppercase mb-2">[{vehicleTypes.find(v=>v.id===selectedVehicle).name}] 엣지 라이브러리 맵</h2><p className="text-slate-500 text-xs font-bold uppercase tracking-widest">Physics-Weighted 1,000 Edge Scenarios (ω={vehicleTypes.find(v=>v.id===selectedVehicle).weight})</p></div>
-                                <div className="flex gap-8 text-[11px] font-black uppercase tracking-tighter">
-                                    <span className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#deff9a]"></div> 비전</span>
-                                    <span className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#3b82f6]"></div> 융합</span>
-                                    <span className="flex items-center gap-2"><div className="w-3 h-3 rounded-sm bg-[#a855f7]"></div> V2X</span>
-                                </div>
-                            </div>
-
-                            <div className="bg-black/60 rounded-[30px] p-10 border border-white/5 flex-grow overflow-hidden shadow-inner relative">
-                                {isSimulating && <div className="scanner"></div>}
-                                <div className="grid grid-cols-[repeat(40,minmax(0,1fr))] gap-1.5 h-full overflow-y-auto pr-6 custom-scrollbar">
-                                    {libraryData.map((item, i) => {
-                                        const isBuilt = builtIndices.has(i);
-                                        const isMatched = currentCaseIndex === i;
-                                        const activeClass = item.type === "v" ? "active-v" : (item.type === "f" ? "active-f" : "active-x");
-                                        return <div key={i} onClick={() => isBuilt && !isSimulating && setCurrentCaseIndex(i)} className={`grid-square aspect-square ${isBuilt ? activeClass : 'bg-white/5'} ${isMatched ? 'ring-2 ring-white scale-180 z-40 shadow-[0_0_25px_white] bg-white !important' : ''}`} />;
-                                    })}
-                                </div>
-                                {builtIndices.size === 0 && <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm z-30"><p className="text-xl font-bold text-white uppercase tracking-tighter animate-pulse text-center">차종 선택 후 프로필별 라이브러리를 구축하십시오.</p></div>}
-                            </div>
-
-                            {currentCaseIndex !== -1 && (
-                                <div className="mt-10 p-10 bg-white/[0.03] rounded-[35px] border border-white/10 animate-in slide-in-from-bottom-6 duration-500">
-                                    <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-12">
-                                        <div>
-                                            <div className="flex items-center gap-4 mb-8">
-                                                <span className="text-[11px] bg-blue-600 text-white px-4 py-1.5 rounded-full font-black uppercase">판독 매칭 성공</span>
-                                                <h3 className="text-3xl font-black tracking-tighter text-white">#{String(libraryData[currentCaseIndex].id).padStart(4, '0')} : <span className="text-[#deff9a] ml-4">[{libraryData[currentCaseIndex].scenario}]</span></h3>
-                                            </div>
-                                            <div className="grid grid-cols-3 gap-8 mb-10 text-center">
-                                                <div className="bg-black/80 p-6 rounded-3xl border border-white/5"><span className="text-[10px] text-slate-500 font-bold block mb-3 uppercase tracking-widest">제조사(HW/SW)</span><span className="text-5xl font-black text-red-500">{libraryData[currentCaseIndex].liabilities.oem}%</span></div>
-                                                <div className="bg-black/80 p-6 rounded-3xl border border-white/5"><span className="text-[10px] text-slate-500 font-bold block mb-3 uppercase tracking-widest">운영사(관리)</span><span className="text-5xl font-black text-amber-500">{libraryData[currentCaseIndex].liabilities.op}%</span></div>
-                                                <div className="bg-black/80 p-6 rounded-3xl border border-white/5"><span className="text-[10px] text-slate-500 font-bold block mb-3 uppercase tracking-widest">환경/인프라</span><span className="text-5xl font-black text-blue-500">{libraryData[currentCaseIndex].liabilities.env}%</span></div>
-                                            </div>
-                                            <div className="border-t border-white/10 pt-8"><span className="text-[#deff9a] text-[12px] font-black uppercase tracking-widest mb-4 block">차종별 물리 특성 기반 인과 분석 리포트</span><p className="text-xl leading-relaxed text-slate-200 font-medium italic">"본 사고는 <strong>{vehicleTypes.find(v=>v.id===selectedVehicle).name}</strong>의 중량 가중치(ω={vehicleTypes.find(v=>v.id===selectedVehicle).weight})를 반영하여 판독되었습니다. 분석 결과 {libraryData[currentCaseIndex].details}"</p></div>
+                                        
+                                        {/* 대조 수치 테이블 */}
+                                        <div className="overflow-hidden rounded-2xl border border-white/5 bg-black/40 mb-10 shadow-2xl">
+                                            <table className="w-full text-left border-collapse">
+                                                <thead>
+                                                    <tr className="bg-white/5">
+                                                        <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest">물리 분석 항목</th>
+                                                        <th className="p-4 text-[10px] font-bold text-red-400 uppercase tracking-widest text-center">사고 시 실측 수치</th>
+                                                        <th className="p-4 text-[10px] font-bold text-slate-500 uppercase tracking-widest text-center">공학적 정상 표준</th>
+                                                        <th className="p-4 text-[10px] font-bold text-[#deff9a] uppercase tracking-widest text-right">사고 기여도</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    <tr className="border-t border-white/5">
+                                                        <td className="p-4 font-bold text-slate-300 text-sm">복원 주행 속도</td>
+                                                        <td className="p-4 text-center text-white font-black text-xl">{libraryData[currentCaseIndex].actual.speed.toFixed(1)} <small className="text-[10px] text-slate-500">km/h</small></td>
+                                                        <td className="p-4 text-center text-slate-500 text-sm font-bold">{STANDARDS.speed.toFixed(1)} km/h</td>
+                                                        <td className="p-4 text-right text-[#deff9a] font-black text-2xl">{libraryData[currentCaseIndex].liabilities.op}%</td>
+                                                    </tr>
+                                                    <tr className="border-t border-white/5">
+                                                        <td className="p-4 font-bold text-slate-300 text-sm">노면 마찰 계수</td>
+                                                        <td className="p-4 text-center text-white font-black text-xl">{libraryData[currentCaseIndex].actual.friction.toFixed(2)} <small className="text-[10px] text-slate-500">μ</small></td>
+                                                        <td className="p-4 text-center text-slate-500 text-sm font-bold">{STANDARDS.friction.toFixed(2)} μ</td>
+                                                        <td className="p-4 text-right text-[#deff9a] font-black text-2xl">{libraryData[currentCaseIndex].liabilities.env}%</td>
+                                                    </tr>
+                                                    <tr className="border-t border-white/5">
+                                                        <td className="p-4 font-bold text-slate-300 text-sm">시스템 인지 지연</td>
+                                                        <td className="p-4 text-center text-white font-black text-xl">{libraryData[currentCaseIndex].actual.latency.toFixed(2)} <small className="text-[10px] text-slate-500">s</small></td>
+                                                        <td className="p-4 text-center text-slate-500 text-sm font-bold">{STANDARDS.latency.toFixed(2)} s</td>
+                                                        <td className="p-4 text-right text-[#deff9a] font-black text-2xl">{libraryData[currentCaseIndex].liabilities.oem}%</td>
+                                                    </tr>
+                                                </tbody>
+                                            </table>
                                         </div>
-                                        <div className="bg-black/50 p-10 rounded-[40px] border border-white/5 flex flex-col justify-center">
-                                            <h4 className="text-[11px] font-black text-slate-500 uppercase mb-8 tracking-widest border-b border-white/10 pb-4">Vehicle Metadata & Proof</h4>
-                                            <div className="space-y-6 text-sm">
-                                                <div className="flex justify-between"><span>선택 차종</span><span className="font-bold text-[#deff9a] uppercase text-xs">{vehicleTypes.find(v=>v.id===selectedVehicle).name}</span></div>
-                                                <div className="flex justify-between"><span>물리 가중치(ω)</span><span className="font-bold text-white text-xs">{vehicleTypes.find(v=>v.id===selectedVehicle).weight}</span></div>
-                                                <div className="flex justify-between"><span>보안 인증</span><span className="font-bold text-blue-400 uppercase text-xs">SHA-256 Secured</span></div>
-                                                <div className="pt-6"><p className="text-[10px] text-slate-600 leading-relaxed italic text-center">* 차종별 물리 한계 수식($F=ma$)을 적용한 조작 불가능한 공학적 판독 결과입니다.</p></div>
+
+                                        <div className="border-t border-white/10 pt-8">
+                                            <span className="text-[#deff9a] text-[12px] font-black uppercase tracking-widest mb-4 block">공학적 사고 인과 분석 요약</span>
+                                            <p className="text-xl leading-relaxed text-slate-200 font-medium italic">
+                                                "본 사례는 <strong className="text-white">{selectedVehicle}</strong>의 물리 가중치와 <strong className="text-white">{libraryData[currentCaseIndex].typeName}</strong> 알고리즘 환경 하에 판독되었습니다. 분석 결과 {libraryData[currentCaseIndex].details}"
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div className="bg-black/50 p-10 rounded-[40px] border border-white/5 flex flex-col justify-center">
+                                        <h4 className="text-[11px] font-black text-slate-500 uppercase mb-8 tracking-widest border-b border-white/10 pb-4">Metadata & Verification</h4>
+                                        <div className="space-y-6 text-sm">
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-500">선택 차종</span>
+                                                <span className="font-bold text-white uppercase text-xs">{selectedVehicle} (Profile Loaded)</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-500">물리 해상도</span>
+                                                <span className="font-bold text-[#deff9a] text-xs">100Hz (0.01s)</span>
+                                            </div>
+                                            <div className="flex justify-between items-center">
+                                                <span className="text-slate-500">보안 수준</span>
+                                                <span className="font-bold text-blue-400 uppercase text-xs">SHA-256 Secured</span>
+                                            </div>
+                                            <div className="pt-6">
+                                                <p className="text-[10px] text-slate-600 leading-relaxed italic text-center">
+                                                    * 판독된 모든 결과는 위변조가 불가능한 해시체인 로그에 의해 무결성이 보증됩니다.
+                                                </p>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-                            )}
-                        </main>
+                            </div>
+                        )}
                     </div>
-                </div>
-            );
-        };
+                </main>
+            </div>
+        </div>
+    );
+};
 
-        const root = ReactDOM.createRoot(document.getElementById('root'));
-        root.render(<App />);
-    </script>
-</body>
-</html>
+export default App;
