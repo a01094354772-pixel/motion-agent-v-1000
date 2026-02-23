@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>모션 에이전트 브이 | 차종·알고리즘 통합 판독 플랫폼</title>
+    <title>모션 에이전트 브이 | 정밀 사고 인과 판독 플랫폼</title>
     <!-- 외부 라이브러리 로드 -->
     <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
     <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
@@ -42,7 +42,6 @@
             box-shadow: 0 0 20px rgba(255,255,255,0.6); 
         }
         
-        /* 프로필별 고유 색상 */
         .active-v { background-color: #deff9a !important; box-shadow: 0 0 4px #deff9a; } 
         .active-f { background-color: #3b82f6 !important; box-shadow: 0 0 4px #3b82f6; } 
         .active-x { background-color: #a855f7 !important; box-shadow: 0 0 4px #a855f7; }
@@ -139,16 +138,18 @@
                 const vFactor = vehicleTypes.find(v => v.id === selectedVehicle).weight;
 
                 return Array.from({ length: 1000 }, (_, i) => {
-                    let type, typeName, scenario, details, actual;
+                    let type, typeName, scenario, actual;
                     
                     const genCase = (bSpeed, bFric, bLat) => {
-                        const s = bSpeed + (Math.random() * 20 - 10);
+                        const s = bSpeed + (Math.random() * 24 - 12);
                         const f = Math.max(0.1, bFric + (Math.random() * 0.2 - 0.1));
                         const l = Math.max(0.01, bLat + (Math.random() * 0.2 - 0.1));
                         
-                        const sRisk = Math.max(0, s - STANDARDS.speed) * 5 * vFactor;
-                        const fRisk = Math.max(0, STANDARDS.friction - f) * 120 * vFactor;
-                        const lRisk = Math.max(0, l - STANDARDS.latency) * 200;
+                        // 물리 리스크 산출 (차종 가중치 반영)
+                        const sRisk = Math.pow(Math.max(0, s - STANDARDS.speed), 1.5) * 5 * vFactor;
+                        const fRisk = Math.pow(Math.max(0, STANDARDS.friction - f), 1.5) * 150 * vFactor;
+                        const lRisk = Math.pow(Math.max(0, l - STANDARDS.latency), 1.5) * 300;
+                        
                         const total = sRisk + fRisk + lRisk + 0.1;
                         
                         return {
@@ -164,26 +165,19 @@
                     const dice = i % 3;
                     if (i < 300) {
                         typeName = "비전 전용"; type = "v";
-                        const d = genCase(dice === 0 ? 75 : 60, dice === 2 ? 0.4 : 0.8, dice === 1 ? 0.3 : 0.1);
+                        const d = genCase(dice === 1 ? 82 : 60, dice === 2 ? 0.35 : 0.8, dice === 0 ? 0.32 : 0.1);
                         scenario = ["역광 노출 인지 소실", "운영사 설정 속도 과다", "노면 마찰력 급감"][dice];
-                        actual = d.actual;
-                        const liab = d.liabilities;
-                        details = `본 사고는 비전 알고리즘 기반 하에 ${scenario}로 인해 발생했습니다. ${selectedVehicle}의 관성 가중치(${vFactor}x)를 적용한 결과 물리적 제동 한계를 초과한 것으로 분석됩니다.`;
-                        return { id: i + 1, type, typeName, scenario, liabilities: liab, actual, details };
+                        return { id: i + 1, type, typeName, scenario, liabilities: d.liabilities, actual: d.actual };
                     } else if (i < 600) {
                         typeName = "센서 융합"; type = "f";
-                        const d = genCase(65, 0.7, 0.25);
+                        const d = genCase(dice === 1 ? 75 : 62, dice === 2 ? 0.45 : 0.75, dice === 0 ? 0.38 : 0.1);
                         scenario = ["센서 데이터 정합성 충돌", "타이어 마모 관리 소홀", "고스트 객체 인지 오류"][dice];
-                        actual = d.actual;
-                        details = `라이다 및 레이더 데이터의 잔차 발생으로 판단이 지연되었습니다. ${selectedVehicle}의 차체 크기에 따른 센서 사각지대 및 인지 로직의 상관관계를 판독하였습니다.`;
-                        return { id: i + 1, type, typeName, scenario, liabilities: d.liabilities, actual, details };
+                        return { id: i + 1, type, typeName, scenario, liabilities: d.liabilities, actual: d.actual };
                     } else {
                         typeName = "커넥티드 V2X"; type = "x";
-                        const d = genCase(62, 0.8, 0.45);
+                        const d = genCase(dice === 1 ? 72 : 60, dice === 2 ? 0.5 : 0.8, dice === 0 ? 0.45 : 0.1);
                         scenario = ["네트워크 지연 관제 실패", "I-ITS 신호 비동기", "배터리 전압 급강하 결함"][dice];
-                        actual = d.actual;
-                        details = `인프라 통신 패킷 지연이 임계치를 상회하였습니다. ${selectedVehicle}의 원격 제어 명령 도달 전 물리적 접촉이 발생한 인프라 기여 사고로 특정되었습니다.`;
-                        return { id: i + 1, type, typeName, scenario, liabilities: d.liabilities, actual, details };
+                        return { id: i + 1, type, typeName, scenario, liabilities: d.liabilities, actual: d.actual };
                     }
                 });
             }, [selectedVehicle]);
@@ -231,6 +225,24 @@
             };
 
             const currentBuiltSet = builtIndicesMap[selectedVehicle];
+
+            // 가장 높은 기여도 항목을 찾아 인과 분석 텍스트 생성
+            const getPrimaryCauseText = (data) => {
+                if (!data) return "";
+                const { op, env, oem } = data.liabilities;
+                const maxVal = Math.max(op, env, oem);
+                
+                let causeDetail = "";
+                if (maxVal === op) {
+                    causeDetail = `규정 속도를 상회하는 주행 에너지로 인해 물리적 제동 한계 거리를 초과한 것이 사고의 결정적 원인(기여도 ${op}%)으로 판독되었습니다.`;
+                } else if (maxVal === env) {
+                    causeDetail = `사고 당시 노면 마찰 계수가 ${data.actual.friction.toFixed(2)}μ로 급락하여, 시스템의 정상적 제동력 인가에도 불구하고 물리적 접지력 상실이 주원인(기여도 ${env}%)으로 분석되었습니다.`;
+                } else {
+                    causeDetail = `인지 및 판단 알고리즘의 연산 지연(${data.actual.latency.toFixed(2)}s)이 설계 표준을 벗어나 회피 기동 골든타임을 실기한 것이 핵심 결함(기여도 ${oem}%)으로 지목되었습니다.`;
+                }
+
+                return `본 사례는 ${selectedVehicle}의 물리 가중치와 ${data.typeName} 알고리즘 환경 하에 판독되었습니다. 분석 결과, ${causeDetail}`;
+            };
 
             return (
                 <div className="p-8 max-w-[1600px] mx-auto min-h-screen flex flex-col bg-black text-left">
@@ -312,9 +324,9 @@
                                         <p className="text-slate-500 text-xs font-bold uppercase tracking-widest text-left">Physics-Weighted 1,000 Edge Scenarios (Weight={vehicleTypes.find(v=>v.id===selectedVehicle).weight})</p>
                                     </div>
                                     <div className="flex gap-8 text-[11px] font-black uppercase tracking-tighter">
-                                        <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#deff9a]"></div> 비전</span>
-                                        <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#3b82f6]"></div> 융합</span>
-                                        <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#a855f7]"></div> V2X</span>
+                                        <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#deff9a]"></div> 비전 (300)</span>
+                                        <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#3b82f6]"></div> 융합 (300)</span>
+                                        <span className="flex items-center gap-2"><div className="w-3.5 h-3.5 rounded-sm bg-[#a855f7]"></div> V2X (400)</span>
                                     </div>
                                 </div>
 
@@ -340,7 +352,7 @@
                                         <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-md z-30">
                                             <div className="text-center">
                                                 <i className="fa-solid fa-microchip text-5xl text-[#deff9a] mb-6 animate-pulse"></i>
-                                                <p className="text-2xl font-black text-white uppercase tracking-tighter">분석 차종 및 알고리즘을 선택하여 라이브러리를 구축하십시오.</p>
+                                                <p className="text-2xl font-black text-white uppercase tracking-tighter">분석 차종 및 프로필을 선택하여 라이브러리를 구축하십시오.</p>
                                             </div>
                                         </div>
                                     )}
@@ -391,7 +403,7 @@
                                                 <div className="border-t border-white/10 pt-8 text-left">
                                                     <span className="text-[#deff9a] text-[12px] font-black uppercase tracking-widest mb-4 block text-left">공학적 사고 인과 분석 요약</span>
                                                     <p className="text-xl leading-relaxed text-slate-200 font-medium italic text-left">
-                                                        "본 사례는 <strong className="text-white">${selectedVehicle}</strong>의 물리 가중치와 <strong className="text-white">${libraryData[currentCaseIndex].typeName}</strong> 알고리즘 환경 하에 판독되었습니다. 분석 결과 {libraryData[currentCaseIndex].details}"
+                                                        {getPrimaryCauseText(libraryData[currentCaseIndex])}
                                                     </p>
                                                 </div>
                                             </div>
